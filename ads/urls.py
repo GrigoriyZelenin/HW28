@@ -1,9 +1,14 @@
 from django.urls import path
+from rest_framework import routers
 
 from ads.views import (
     CategoryListView, CategoryCreateView, CategoryDetailView, CategoryUpdateView, CategoryDeleteView,
-    AdDetailView, AdListView, AdCreateView, AdUpdateView, AdDeleteView, AdUploadImageView
+    AdDetailView, AdListView, AdCreateView, AdUpdateView, AdDeleteView, AdUploadImageView, LocationViewSet
 )
+
+
+location_router = routers.SimpleRouter()
+location_router.register('location', LocationViewSet, basename='location')
 
 urlpatterns = [
     # Category
@@ -22,3 +27,5 @@ urlpatterns = [
     path('ad/<int:pk>/delete/', AdDeleteView.as_view()),
 
 ]
+
+urlpatterns += location_router.urls

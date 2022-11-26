@@ -3,13 +3,18 @@ import math
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views.generic import DetailView, ListView, CreateView, UpdateView, DeleteView
 from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator
+from rest_framework import viewsets, status
+from rest_framework.generics import get_object_or_404, ListAPIView
+from rest_framework.response import Response
 
-from ads.models import Category, Ad
+from ads.models import Category, Ad, Location
+from ads.serializers import LocationSerializer, AdSerializer
 
 
 def index(request):
@@ -116,41 +121,34 @@ class CategoryDeleteView(DeleteView):
         return JsonResponse({'status': 'ok'}, status=200)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
-class AdListView(ListView):
-    model = Ad
+class AdListView(ListAPIView):
+    queryset = Ad.objects.all()
+    serializer_class = AdSerializer
 
     def get(self, request, *args, **kwargs):
-        self.object_list = self.get_queryset().order_by('-price').select_related('author').select_related('category')
-        search_text = request.GET.get('name', None)
-        if search_text:
-            self.object_list = self.object_list.filter(name=search_text)
+        category_id = request.GET.get("cat", None)
+        text = request.GET.get("text", None)
+        location = request.GET.get("location", None)
+        price_from = request.GET.get("price_from", None)
+        price_to = request.GET.get("price_to", None)
 
-        total = self.object_list.count()
-        page = request.GET.get('page')
-        paginator = Paginator(self.object_list, settings.TOTAL_ON_PAGE)
-        page_obj = paginator.get_page(page)
-
-        items = []
-        for item in page_obj:
-            items.append({
-                'id': item.id,
-                'name': item.name,
-                'author_id': item.author.id,
-                'price': item.price,
-                'description': item.description,
-                'category_id': item.category.id,
-                'is_published': item.is_published,
-                'image': item.image.url if item.image else None
-            })
-
-        response = {
-            'total': total,
-            'items': items,
-            'num_pages': math.ceil(float(total)/settings.TOTAL_ON_PAGE)
-        }
-
-        return JsonResponse(response, safe=False)
+        if category_id:
+            self.queryset = self.queryset.filter(
+                category_id__exact=category_id
+            )
+        if text:
+            self.queryset = self.queryset.filter(
+                name__icontains=text
+            )
+        if location:
+            self.queryset = self.queryset.filter(
+                author__locations__name__icontains=location
+            )
+        if price_from and price_to:
+            self.queryset = self.queryset.filter(
+                Q(price__gte=price_from) & Q(price__lte=price_to)
+            )
+        return super().get(request, *args, **kwargs)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -274,3 +272,42 @@ class AdDeleteView(DeleteView):
     def delete(self, request, *args, **kwargs):
         super().delete(request, *args, **kwargs)
         return JsonResponse({'status': 'ok'}, status=200)
+
+
+class LocationViewSet(viewsets.ViewSet):
+
+    def list(self, request):
+        queryset = Location.objects.all()
+        serializer = LocationSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request):
+        serializer = LocationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def retrieve(self, request, pk=None):
+        queryset = Location.objects.all()
+        location = get_object_or_404(queryset, pk=pk)
+        serializer = LocationSerializer(location)
+        return Response(serializer.data)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        queryset = Location.objects.all()
+        location = get_object_or_404(queryset, pk=kwargs.get('pk'))
+        serializer = LocationSerializer(location, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, pk=None):
+        queryset = Location.objects.all()
+        user = get_object_or_404(queryset, pk=pk)
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
